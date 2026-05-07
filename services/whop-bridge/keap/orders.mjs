@@ -34,25 +34,42 @@ export function whopOrderTitle(whopPaymentId) {
   return `${TITLE_PREFIX}${whopPaymentId}`;
 }
 
+// V2 list-by-email lookup. Returns first match or null.
 export async function findContactByEmail(email) {
   if (!email) return null;
-  const r = await v1().get('/contacts', { params: { email, limit: 5 } });
+  const filter = `email==${email}`;
+  const r = await v2().get('/contacts', { params: { filter, page_size: 5 } });
   const contacts = r.data?.contacts || [];
   return contacts[0] || null;
 }
 
-// Upsert via duplicate_option=Email — Keap returns existing or creates new.
-// V1 only — V2 has no upsert endpoint.
+// Manual upsert: filter by email, PATCH if found else POST.
+// V2 has no native upsert (V1's duplicate_option=Email also rejects with
+// validation errors that vary by tenant). Wrap both calls so error bodies
+// surface w/ enough context to debug.
 export async function upsertContactByEmail({ email, given_name, family_name, phone }) {
   if (!email) throw new Error('upsertContactByEmail: email required');
+
   const body = {
     email_addresses: [{ field: 'EMAIL1', email }],
     given_name: given_name || '',
     family_name: family_name || ''
   };
   if (phone) body.phone_numbers = [{ field: 'PHONE1', number: phone }];
-  const r = await v1().put('/contacts', body, { params: { duplicate_option: 'Email' } });
-  return r.data;
+
+  try {
+    const existing = await findContactByEmail(email);
+    if (existing?.id) {
+      const r = await v2().patch(`/contacts/${existing.id}`, body);
+      return r.data;
+    }
+    const r = await v2().post('/contacts', body);
+    return r.data;
+  } catch (e) {
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+    const status = e.response?.status || '?';
+    throw new Error(`Keap upsertContactByEmail failed (${status}): ${detail} | request body: ${JSON.stringify(body)}`);
+  }
 }
 
 // Find a Keap order by Whop payment id via title-prefix match.
