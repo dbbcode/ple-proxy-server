@@ -62,3 +62,23 @@ export function allEntries() {
 export function size() {
   return Object.keys(load()).length;
 }
+
+// Surgical clear of a single payment id. Returns true if the entry existed.
+// Useful for testing/replay after deleting a Keap order: without this, the
+// next replay short-circuits at layer-1 dedupe and never hits Keap.
+export function deleteEntry(whopPaymentId) {
+  const cache = load();
+  if (!(whopPaymentId in cache)) return false;
+  delete cache[whopPaymentId];
+  persist();
+  return true;
+}
+
+// Nuke the whole cache. Source of truth (Keap titles) lets us rebuild via
+// the reconciler, so this is non-destructive in practice.
+export function clearAll() {
+  const count = Object.keys(load()).length;
+  mem = {};
+  persist();
+  return count;
+}
