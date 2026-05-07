@@ -16,7 +16,10 @@ import {
   upsertContactByEmail,
   findOrderByWhopPaymentId,
   createOrder,
-  recordPayment
+  recordPayment,
+  getOrder,
+  updateOrderTitle,
+  addDiscountLineItem
 } from '../keap/orders.mjs';
 import { getEntry, setEntry } from './cache.mjs';
 
@@ -166,11 +169,34 @@ export async function processRefundCreated(refund) {
   const refundAmount = Math.abs(Number(refund?.amount ?? cached.amount ?? 0));
   const refundedAt = refund?.created_at || new Date().toISOString();
 
+  // 1. Negative payment record — the refund itself.
   await recordPayment(orderId, {
     amount: -refundAmount,
     paidAt: refundedAt,
     notes: `Whop refund ${refundId} for payment ${paymentId}`
   });
+
+  // 2. DISCOUNT line item — credits the order total so balance nets to $0
+  //    (matches Keap's standard refund-then-credit flow).
+  await addDiscountLineItem(orderId, {
+    amount: refundAmount,
+    name: `Whop refund credit (${refundId})`
+  });
+
+  // 3. Prepend [REFUNDED] to the order title for at-a-glance visibility.
+  //    Skip if already prefixed (e.g. partial refund #2).
+  try {
+    const order = await getOrder(orderId);
+    const currentTitle = order?.order_title || order?.title || '';
+    if (currentTitle && !currentTitle.startsWith('[REFUNDED]')) {
+      await updateOrderTitle(orderId, `[REFUNDED] ${currentTitle}`);
+    }
+  } catch (e) {
+    // Title update is cosmetic — don't fail the whole refund if it errors.
+    Sentry.captureException(e, {
+      tags: { kind: 'refund_title_update_failed', whop_payment_id: paymentId, keap_order_id: orderId }
+    });
+  }
 
   setEntry(paymentId, {
     refund_id: refundId,

@@ -135,3 +135,36 @@ export async function recordPayment(orderId, { amount, paidAt, notes }) {
   const r = await v2().post(`/orders/${orderId}/payments`, body);
   return r.data;
 }
+
+export async function getOrder(orderId) {
+  const r = await v2().get(`/orders/${orderId}`);
+  return r.data;
+}
+
+// Patch an order's title in place. Used by the refund flow to mark the
+// order [REFUNDED] without rewriting any other field.
+export async function updateOrderTitle(orderId, newTitle) {
+  const r = await v2().patch(`/orders/${orderId}`, { order_title: newTitle });
+  return r.data;
+}
+
+// Add an ad-hoc credit to an order via a DISCOUNT line item. Keap's V2 has
+// no first-class "credit" entity, but order-items support item_type=DISCOUNT
+// which reduces the order total by `amount`. Combined with the negative
+// payment, this zeros out both `total_paid` and `total_due` so the order
+// shows balance=$0 instead of "still owed".
+//
+// Convention check: pass amount as a POSITIVE number — Keap interprets
+// DISCOUNT line items as subtractions internally. If a tenant rejects
+// positive values, swap the sign.
+export async function addDiscountLineItem(orderId, { amount, name = 'Refund credit' }) {
+  const body = {
+    item_type: 'DISCOUNT',
+    quantity: 1,
+    price_per_unit: Math.abs(Number(amount)),
+    name,
+    description: name
+  };
+  const r = await v2().post(`/orders/${orderId}/items`, body);
+  return r.data;
+}
