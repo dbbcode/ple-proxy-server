@@ -34,19 +34,27 @@ export function whopOrderTitle(whopPaymentId) {
   return `${TITLE_PREFIX}${whopPaymentId}`;
 }
 
-// V2 list-by-email lookup. Returns first match or null.
+// V2 list-by-email lookup. The Keap email== filter matches across all email
+// slots (EMAIL1/EMAIL2/EMAIL3), so we restrict to EMAIL1 matches only —
+// otherwise we'd update a contact that just happens to carry someone else's
+// address as a secondary, which is a real collision case in this tenant.
 export async function findContactByEmail(email) {
   if (!email) return null;
+  const target = String(email).toLowerCase();
   const filter = `email==${email}`;
-  const r = await v2().get('/contacts', { params: { filter, page_size: 5 } });
+  const r = await v2().get('/contacts', { params: { filter, page_size: 50 } });
   const contacts = r.data?.contacts || [];
-  return contacts[0] || null;
+
+  return contacts.find(c =>
+    (c.email_addresses || []).some(e =>
+      e.field === 'EMAIL1' && String(e.email || '').toLowerCase() === target
+    )
+  ) || null;
 }
 
-// Manual upsert: filter by email, PATCH if found else POST.
-// V2 has no native upsert (V1's duplicate_option=Email also rejects with
-// validation errors that vary by tenant). Wrap both calls so error bodies
-// surface w/ enough context to debug.
+// Manual upsert: filter by email (EMAIL1 only — see findContactByEmail),
+// PATCH if found else POST. V2 has no native upsert. Wrap both calls so
+// error bodies surface w/ enough context to debug.
 export async function upsertContactByEmail({ email, given_name, family_name, phone }) {
   if (!email) throw new Error('upsertContactByEmail: email required');
 
