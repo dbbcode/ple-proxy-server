@@ -21,8 +21,11 @@ Successful events have no separate audit log — Keap *is* the audit log.
 
 ## One-time setup
 
-1. **Keap admin**: E-Commerce > Settings > Payment Types > add `Whop`. Note
-   the numeric id and put it in `KEAP_WHOP_PAYMENT_METHOD_ID`.
+1. **Keap admin**: E-Commerce > Settings > Order Settings > Payment Types >
+   add a manual payment type named `Whop`. The string name (default `Whop`)
+   goes into `KEAP_WHOP_PAYMENT_METHOD_TYPE`. Manual payment types in Keap
+   are text values (no numeric id), and the V2 payments endpoint accepts
+   them via `payment_method_type`.
 2. **Whop dashboard**: create API key (Bearer) for `WHOP_API_KEY`. Create
    webhook endpoint pointing at `https://<server>/whop/webhook`, copy signing
    secret into `WHOP_WEBHOOK_SECRET`. Enable events: `payment.succeeded`,
@@ -57,7 +60,7 @@ Successful events have no separate audit log — Keap *is* the audit log.
    No mapping → Sentry exception (`kind=unmapped_product`), no order.
 5. Upsert Keap contact by email (`duplicate_option=Email`).
 6. Create Keap order with title `Whop <pay_id> (USD)`.
-7. Record payment with `payment_method_id = KEAP_WHOP_PAYMENT_METHOD_ID`.
+7. Record payment via V2 with `payment_method_type = KEAP_WHOP_PAYMENT_METHOD_TYPE`.
 8. Write cache, log success to stdout.
 
 ## Data flow: refund.created

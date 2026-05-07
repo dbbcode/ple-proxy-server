@@ -1,26 +1,34 @@
-// Keap V1 REST helpers for Whop integration.
+// Keap REST helpers for Whop integration. Mixed V1 + V2:
+//   - V1 for contact upsert (V2 has no upsert; manual GET-then-POST/PATCH is messier).
+//   - V1 for order create + listing (works fine, V2 list has no title filter anyway).
+//   - V2 for the payment record because V2 accepts `payment_method_type` (string),
+//     which is what Keap's manual payment types are. V1 only takes a numeric
+//     `payment_method_id` that doesn't map to manual types.
+//
 // Source of truth for dedupe: order_title prefix `Whop <pay_id>`.
 //
-// Setup prereq: in Keap admin, create a payment method named "Whop"
-// and put its numeric id in env KEAP_WHOP_PAYMENT_METHOD_ID.
+// Setup prereq: in Keap admin, create a manual payment type named "Whop"
+// (E-Commerce > Settings > Order Settings > Payment Types > "Add"). The
+// string name goes into env KEAP_WHOP_PAYMENT_METHOD_TYPE (default "Whop").
 
 import axios from 'axios';
 
-// Hardcoded V1 base. Existing KEAP_API_URL env may point at /crm/rest/ without
-// the version segment (used by the legacy /proxy route which appends version
-// per-call). Keep this module independent of that.
-const KEAP_BASE = 'https://api.infusionsoft.com/crm/rest/v1';
+const KEAP_BASE_V1 = 'https://api.infusionsoft.com/crm/rest/v1';
+const KEAP_BASE_V2 = 'https://api.infusionsoft.com/crm/rest/v2';
 const TITLE_PREFIX = 'Whop ';
 
-function v1() {
+function client(baseURL) {
   const key = process.env.KEAP_API_KEY;
   if (!key) throw new Error('KEAP_API_KEY missing');
   return axios.create({
-    baseURL: KEAP_BASE,
+    baseURL,
     headers: { 'X-KEAP-API-KEY': key, 'Content-Type': 'application/json' },
     timeout: 20000
   });
 }
+
+const v1 = () => client(KEAP_BASE_V1);
+const v2 = () => client(KEAP_BASE_V2);
 
 export function whopOrderTitle(whopPaymentId) {
   return `${TITLE_PREFIX}${whopPaymentId}`;
@@ -34,6 +42,7 @@ export async function findContactByEmail(email) {
 }
 
 // Upsert via duplicate_option=Email — Keap returns existing or creates new.
+// V1 only — V2 has no upsert endpoint.
 export async function upsertContactByEmail({ email, given_name, family_name, phone }) {
   if (!email) throw new Error('upsertContactByEmail: email required');
   const body = {
@@ -47,8 +56,8 @@ export async function upsertContactByEmail({ email, given_name, family_name, pho
 }
 
 // Find a Keap order by Whop payment id via title-prefix match.
-// Lists orders within `lookbackDays` (default 180) and greps client-side.
-// For high-volume tenants, switch to V2 RSQL filter `title=='*Whop pay_xxx*'`.
+// V2 list-orders has no title filter, so we still list by date window and
+// grep client-side. Equivalent to V1 in capability.
 export async function findOrderByWhopPaymentId(whopPaymentId, { lookbackDays = 180, contactId = null } = {}) {
   const title = whopOrderTitle(whopPaymentId);
   const since = new Date(Date.now() - lookbackDays * 86400000).toISOString();
@@ -86,24 +95,18 @@ export async function createOrder({ contactId, productId, total, paidAt, whopPay
   return r.data;
 }
 
-// Record a payment on an order. Pass negative `amount` for refunds.
-// payment_method_id should be the Keap "Whop" method id from KEAP_WHOP_PAYMENT_METHOD_ID.
+// Record a payment on an order. Uses V2 endpoint so we can pass the manual
+// payment-type *string* (Keap admin > Order Settings > Payment Types).
+// Pass negative `amount` for refunds.
 export async function recordPayment(orderId, { amount, paidAt, notes }) {
-  const methodId = Number(process.env.KEAP_WHOP_PAYMENT_METHOD_ID || 0);
+  const methodType = process.env.KEAP_WHOP_PAYMENT_METHOD_TYPE || 'Whop';
   const body = {
-    date: paidAt || new Date().toISOString(),
+    payment_time: paidAt || new Date().toISOString(),
     notes: notes || 'Whop',
-    payment_method_id: methodId,
+    payment_method_type: methodType,
     apply_to_commissions: true,
     payment_amount: Number(amount)
   };
-  const r = await v1().post(`/orders/${orderId}/payments`, body);
+  const r = await v2().post(`/orders/${orderId}/payments`, body);
   return r.data;
-}
-
-export async function addOrderNote(orderId, body) {
-  // V1 doesn't expose order-notes endpoint directly; using payment record with notes
-  // is the practical equivalent for an audit trail. Kept as a thin wrapper for future
-  // promotion to a dedicated notes API if/when added.
-  return recordPayment(orderId, { amount: 0, paidAt: new Date().toISOString(), notes: body });
 }
