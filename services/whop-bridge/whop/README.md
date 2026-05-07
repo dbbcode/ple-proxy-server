@@ -1,8 +1,10 @@
 # Whop -> Keap integration
 
 Webhook proxy + 15-min reconciler that turns Whop payments into Keap orders
-with manual payments, and mirrors Whop refunds back into Keap as negative
-payment records.
+with manual payments. **Refunds are NOT processed automatically** — ops
+records refunds manually in both Whop and Keap (Keap V2 has no first-class
+refund/credit primitive that fits the standard refund-then-credit flow
+cleanly enough to automate).
 
 ## Architecture
 
@@ -28,8 +30,9 @@ Successful events have no separate audit log — Keap *is* the audit log.
    them via `payment_method_type`.
 2. **Whop dashboard**: create API key (Bearer) for `WHOP_API_KEY`. Create
    webhook endpoint pointing at `https://<server>/whop/webhook`, copy signing
-   secret into `WHOP_WEBHOOK_SECRET`. Enable events: `payment.succeeded`,
-   `refund.created`.
+   secret into `WHOP_WEBHOOK_SECRET`. Enable event: `payment.succeeded`.
+   (`refund.created` can also be subscribed; the bridge logs and ignores
+   it. Ops handles refunds manually in both Whop and Keap.)
 3. **Product map**: in Whop, copy each product id (`prod_xxx`) and pair with
    the Keap product id. Store as JSON in `WHOP_PRODUCT_MAP`.
 4. **Sentry**: create a free project (Node.js platform), copy the DSN into
@@ -63,14 +66,15 @@ Successful events have no separate audit log — Keap *is* the audit log.
 7. Record payment via V2 with `payment_method_type = KEAP_WHOP_PAYMENT_METHOD_TYPE`.
 8. Write cache, log success to stdout.
 
-## Data flow: refund.created
+## Refunds
 
-1. Verify + ack as above.
-2. Find Keap order via cache or title-grep.
-3. Post a negative `payment_amount` on the order with refund metadata in
-   notes — Keap shows it as a refund line in the payment history.
-4. Update cache `refunded=true`, log success to stdout. No alert; refund is
-   normal business flow.
+Not processed automatically. When a refund happens on Whop, ops:
+1. Issues the refund in Whop (real money back to the card).
+2. Manually records the refund in Keap (negative payment + ad-hoc credit
+   per the standard Keap refund flow).
+
+If `refund.created` webhooks are still subscribed in the Whop dashboard,
+the bridge logs and ignores them — they don't fail or alert.
 
 ## Caveats
 

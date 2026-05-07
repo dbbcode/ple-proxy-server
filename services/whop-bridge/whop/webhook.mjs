@@ -4,12 +4,13 @@
 
 import * as Sentry from '@sentry/node';
 import { verifyWhopWebhook } from './verify.mjs';
-import { processPaymentSucceeded, processRefundCreated } from './handlers.mjs';
+import { processPaymentSucceeded } from './handlers.mjs';
 
-const SUPPORTED = new Set([
-  'payment.succeeded',
-  'refund.created'
-]);
+// Refund events are not processed (ops records refunds manually in Keap).
+// Listed here only so we don't log them as "unsupported" if Whop is still
+// subscribed to refund.created.
+const KNOWN_IGNORED = new Set(['refund.created']);
+const SUPPORTED = new Set(['payment.succeeded']);
 
 export async function whopWebhookRoute(req, res) {
   const secret = process.env.WHOP_WEBHOOK_SECRET;
@@ -62,8 +63,8 @@ export async function whopWebhookRoute(req, res) {
     try {
       if (type === 'payment.succeeded') {
         await processPaymentSucceeded(data);
-      } else if (type === 'refund.created') {
-        await processRefundCreated(data);
+      } else if (KNOWN_IGNORED.has(type)) {
+        console.log('[whop-webhook] ignoring known event type (manual handling):', type);
       } else if (!SUPPORTED.has(type)) {
         console.log('[whop-webhook] ignoring unsupported event type:', type);
       }

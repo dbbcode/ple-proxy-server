@@ -16,10 +16,7 @@ import {
   upsertContactByEmail,
   findOrderByWhopPaymentId,
   createOrder,
-  recordPayment,
-  getOrder,
-  updateOrderTitle,
-  addDiscountLineItem
+  recordPayment
 } from '../keap/orders.mjs';
 import { getEntry, setEntry } from './cache.mjs';
 
@@ -136,74 +133,8 @@ export async function processPaymentSucceeded(payment) {
   return entry;
 }
 
-export async function processRefundCreated(refund) {
-  const refundId = refund?.id;
-  const paymentId = refund?.payment_id || refund?.payment?.id;
-  if (!paymentId) throw new Error('refund.payment_id missing');
-
-  let cached = getEntry(paymentId);
-
-  // Refund may arrive before cache is hot (e.g. payment created pre-integration).
-  // Fall back to Keap title-grep before giving up.
-  if (!cached?.keap_order_id) {
-    const existing = await findOrderByWhopPaymentId(paymentId);
-    if (existing) {
-      cached = setEntry(paymentId, {
-        keap_order_id: existing.id,
-        keap_contact_id: existing.contact?.id,
-        source: 'recovered:refund_lookup'
-      });
-    }
-  }
-
-  if (!cached?.keap_order_id) {
-    const err = new Error(`Refund ${refundId} for payment ${paymentId} has no matching Keap order`);
-    Sentry.captureException(err, {
-      tags: { kind: 'refund_no_order', whop_payment_id: paymentId, whop_refund_id: refundId },
-      extra: { refund }
-    });
-    return;
-  }
-
-  const orderId = cached.keap_order_id;
-  const refundAmount = Math.abs(Number(refund?.amount ?? cached.amount ?? 0));
-  const refundedAt = refund?.created_at || new Date().toISOString();
-
-  // 1. Negative payment record — the refund itself.
-  await recordPayment(orderId, {
-    amount: -refundAmount,
-    paidAt: refundedAt,
-    notes: `Whop refund ${refundId} for payment ${paymentId}`
-  });
-
-  // 2. DISCOUNT line item — credits the order total so balance nets to $0
-  //    (matches Keap's standard refund-then-credit flow).
-  await addDiscountLineItem(orderId, {
-    amount: refundAmount,
-    name: `Whop refund credit (${refundId})`
-  });
-
-  // 3. Prepend [REFUNDED] to the order title for at-a-glance visibility.
-  //    Skip if already prefixed (e.g. partial refund #2).
-  try {
-    const order = await getOrder(orderId);
-    const currentTitle = order?.order_title || order?.title || '';
-    if (currentTitle && !currentTitle.startsWith('[REFUNDED]')) {
-      await updateOrderTitle(orderId, `[REFUNDED] ${currentTitle}`);
-    }
-  } catch (e) {
-    // Title update is cosmetic — don't fail the whole refund if it errors.
-    Sentry.captureException(e, {
-      tags: { kind: 'refund_title_update_failed', whop_payment_id: paymentId, keap_order_id: orderId }
-    });
-  }
-
-  setEntry(paymentId, {
-    refund_id: refundId,
-    refunded_at: refundedAt,
-    refund_amount: refundAmount,
-    refunded: true
-  });
-
-  console.log(`[whop] refund recorded: refund=${refundId} pid=${paymentId} keap_order=${orderId} amount=-${refundAmount}`);
-}
+// Refunds are intentionally NOT processed here. Operations records refunds
+// manually in both Whop and Keap because Keap's API has no first-class
+// refund/credit primitive that matches their internal flow cleanly. If
+// Whop is ever subscribed to refund.created webhooks, webhook.mjs logs
+// and ignores them.

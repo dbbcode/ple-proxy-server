@@ -25,7 +25,7 @@ instrument.mjs      # Sentry init — imported first by server.mjs
 whop/
   webhook.mjs       # POST /whop/webhook (verify, ack, dispatch)
   verify.mjs        # Standard Webhooks HMAC verification
-  handlers.mjs      # processPaymentSucceeded / processRefundCreated
+  handlers.mjs      # processPaymentSucceeded (refunds intentionally not handled)
   reconciler.mjs    # 15-min cron — diff Whop payments vs cache + Keap
   cache.mjs         # data/whop_payments.json dedupe cache
   client.mjs        # axios wrapper for Whop REST API
