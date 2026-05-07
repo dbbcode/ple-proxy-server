@@ -1,0 +1,19 @@
+{
+  "name": "whop-bridge",
+  "version": "0.1.0",
+  "description": "Webhook receiver + reconciler that mirrors Whop payments and refunds into Keap orders.",
+  "type": "module",
+  "main": "server.mjs",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "replay": "node test/replay.mjs"
+  },
+  "dependencies": {
+    "@sentry/node": "^8.40.0",
+    "axios": "^1.7.7",
+    "express": "^4.21.0"
+  }
+}

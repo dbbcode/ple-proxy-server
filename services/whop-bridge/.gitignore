@@ -1,0 +1,7 @@
+node_modules/
+data/whop_payments.json
+data/*.tmp
+.env
+.env.local
+.env.test
+*.log

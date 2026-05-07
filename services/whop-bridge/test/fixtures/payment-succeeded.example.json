@@ -1,0 +1,17 @@
+{
+  "action": "payment.succeeded",
+  "data": {
+    "id": "pay_replace_with_captured_id",
+    "total": 99.0,
+    "currency": "usd",
+    "paid_at": "2026-04-30T12:00:00.000Z",
+    "created_at": "2026-04-30T12:00:00.000Z",
+    "user": {
+      "email": "whop-test+example@example.com",
+      "name": "Test User"
+    },
+    "product": {
+      "id": "prod_replace_with_real_whop_product_id"
+    }
+  }
+}
